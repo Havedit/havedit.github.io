@@ -296,8 +296,8 @@
 
     <p class="has-text-centered" style="margin-bottom: 1.5rem;">
       Use the sliders to explore the parameter sweep. The middle panel shows
-      either <b>x0<sup>t</sup> Prediction</b> or
-      <b>Overlay: Semantic Prior Current</b>. All images are pre-computed and loaded statically.
+      the <b>Semantic Prior Current</b> overlay at denoising step <b>t</b>.
+      All images are pre-computed and loaded statically.
     </p>
 
     <div class="columns is-centered is-vcentered">
@@ -313,13 +313,12 @@
 
       <div class="column has-text-centered">
         <h3 class="title is-5">
-          <span id="havedit-view-title">x0^t Prediction</span>,
-          t = <span id="havedit-step-label">1</span>
+          Semantic Prior Current, t = <span id="havedit-step-label">1</span>
         </h3>
         <img
           id="havedit-main-image"
           src=""
-          alt="HAVEdit intermediate visualization"
+          alt="Semantic prior current overlay"
           style="width: 100%; border-radius: 12px;"
         >
       </div>
@@ -354,7 +353,7 @@
 
       <div class="field">
         <label class="label">
-          bhc_tau_low =
+          &tau;<sub>low</sub> =
           <span id="havedit-tau-label">0.80</span>
         </label>
         <input
@@ -362,15 +361,15 @@
           class="slider is-fullwidth is-medium"
           type="range"
           min="0"
-          max="4"
-          value="2"
+          max="6"
+          value="4"
           step="1"
         >
       </div>
 
       <div class="field">
         <label class="label">
-          bhc_lambda_max =
+          &lambda;<sub>max</sub> =
           <span id="havedit-lambda-label">0.15</span>
         </label>
         <input
@@ -378,7 +377,7 @@
           class="slider is-fullwidth is-medium"
           type="range"
           min="0"
-          max="8"
+          max="10"
           value="5"
           step="1"
         >
@@ -398,18 +397,6 @@
           value="1"
           step="1"
         >
-      </div>
-
-      <div class="field" style="margin-top: 1rem;">
-        <label class="label">Visualization Type</label>
-        <div class="control">
-          <div class="select is-fullwidth">
-            <select id="havedit-view-select">
-              <option value="x0">x0^t Prediction</option>
-              <option value="overlay_semantic_prior">Overlay: Semantic Prior Current</option>
-            </select>
-          </div>
-        </div>
       </div>
 
       <p id="havedit-path-debug" class="has-text-centered" style="margin-top: 1rem; font-size: 0.9rem; color: #666;"></p>
@@ -436,7 +423,9 @@
 
     const tauLows = [
       { label: "0.60", key: "0p6" },
+      { label: "0.65", key: "0p65" },
       { label: "0.70", key: "0p7" },
+      { label: "0.75", key: "0p75" },
       { label: "0.80", key: "0p8" },
       { label: "0.85", key: "0p85" },
       { label: "0.88", key: "0p88" }
@@ -451,21 +440,21 @@
       { label: "0.15", key: "0p15" },
       { label: "0.18", key: "0p18" },
       { label: "0.21", key: "0p21" },
-      { label: "0.24", key: "0p24" }
+      { label: "0.24", key: "0p24" },
+      { label: "0.27", key: "0p27" },
+      { label: "0.30", key: "0p3" }
     ];
 
     const thresholdSlider = document.getElementById("havedit-threshold-slider");
     const tauSlider = document.getElementById("havedit-tau-slider");
     const lambdaSlider = document.getElementById("havedit-lambda-slider");
     const stepSlider = document.getElementById("havedit-step-slider");
-    const viewSelect = document.getElementById("havedit-view-select");
 
     const thresholdLabel = document.getElementById("havedit-threshold-label");
     const tauLabel = document.getElementById("havedit-tau-label");
     const lambdaLabel = document.getElementById("havedit-lambda-label");
     const stepLabel = document.getElementById("havedit-step-label");
     const stepValue = document.getElementById("havedit-step-value");
-    const viewTitle = document.getElementById("havedit-view-title");
 
     const mainImage = document.getElementById("havedit-main-image");
     const resultImage = document.getElementById("havedit-result-image");
@@ -493,22 +482,28 @@
       return "step_" + String(step).padStart(4, "0") + ".webp";
     }
 
-    function getFrameUrl(viewType, step) {
+    function getOverlayUrl(step) {
       return (
         ASSET_BASE +
         "grid/" +
         getVariantDir() +
-        "/frames/" +
-        viewType +
-        "/" +
+        "/frames/overlay_semantic_prior/" +
         getStepFilename(step)
+      );
+    }
+
+    function getResultUrl() {
+      return (
+        ASSET_BASE +
+        "grid/" +
+        getVariantDir() +
+        "/result.webp"
       );
     }
 
     function updateLabels() {
       const params = getCurrentParams();
       const step = Number(stepSlider.value);
-      const viewType = viewSelect.value;
 
       thresholdLabel.textContent = params.threshold.label;
       tauLabel.textContent = params.tauLow.label;
@@ -516,26 +511,17 @@
 
       stepLabel.textContent = step;
       stepValue.textContent = step;
-
-      viewTitle.textContent =
-        viewType === "x0"
-          ? "x0^t Prediction"
-          : "Overlay: Semantic Prior Current";
     }
 
     function updateImages() {
       const step = Number(stepSlider.value);
-      const viewType = viewSelect.value;
 
-      const mainUrl = getFrameUrl(viewType, step);
-      const resultUrl = getFrameUrl("x0", 28);
-
-      mainImage.src = mainUrl;
-      resultImage.src = resultUrl;
+      mainImage.src = getOverlayUrl(step);
+      resultImage.src = getResultUrl();
 
       pathDebug.textContent = "Current variant: " + getVariantDir();
 
-      preloadNearbyFrames(step, viewType);
+      preloadNearbyFrames(step);
     }
 
     function preloadImage(src) {
@@ -543,13 +529,13 @@
       img.src = src;
     }
 
-    function preloadNearbyFrames(step, viewType) {
-      const nearbySteps = [step - 1, step + 1, 28];
-
-      nearbySteps.forEach(function (s) {
+    function preloadNearbyFrames(step) {
+      [step - 1, step + 1].forEach(function (s) {
         if (s < 1 || s > 28) return;
-        preloadImage(getFrameUrl(viewType, s));
+        preloadImage(getOverlayUrl(s));
       });
+
+      preloadImage(getResultUrl());
     }
 
     function updateDemo() {
@@ -561,8 +547,7 @@
       thresholdSlider,
       tauSlider,
       lambdaSlider,
-      stepSlider,
-      viewSelect
+      stepSlider
     ].forEach(function (control) {
       control.addEventListener("input", updateDemo);
       control.addEventListener("change", updateDemo);
@@ -572,158 +557,13 @@
   })();
 </script>
 
-<script>
-  const haveditAssetBase = "static/images/havedit/cat_black_flux2/";
-  const haveditManifestPath = haveditAssetBase + "manifest.json";
 
-  const haveditStepSlider = document.getElementById("havedit-step-slider");
-  const haveditStepValue = document.getElementById("havedit-step-value");
-  const haveditStepLabel = document.getElementById("havedit-step-label");
-  const haveditStepMax = document.getElementById("havedit-step-max");
-  const haveditMainImage = document.getElementById("havedit-main-image");
-  const haveditViewSelect = document.getElementById("havedit-view-select");
-  const haveditViewCaption = document.getElementById("havedit-view-caption");
 
-  let haveditFrames = [];
+    
 
-  const haveditCaptions = {
-    x0: "x0^t Prediction: clean-image prediction reconstructed from the intermediate latent at denoising step t.",
-    overlay_semantic_prior: "Overlay: dynamic semantic prior blended onto the current x0^t prediction.",
-    overlay_edit_mask: "Overlay: edit permission map blended onto the current x0^t prediction.",
-    overlay_preserve_weight: "Overlay: preserve/protection weight blended onto the current x0^t prediction.",
-    semantic_prior: "Semantic Prior Current: dynamic semantic evidence from the current step attention.",
-    attention: "Attention: per-step attention diagnostic map.",
-    edit_mask: "Edit Mask: regions allowed to change by HAVEdit after warmup.",
-    preserve_weight: "Preserve Weight: regions protected from editing after warmup."
-  };
 
-  function haveditAssetUrl(path) {
-    if (!path) {
-      return "";
-    }
 
-    if (
-      path.startsWith("http://") ||
-      path.startsWith("https://") ||
-      path.startsWith("static/")
-    ) {
-      return path;
-    }
 
-    return haveditAssetBase + path.replace(/^\.?\//, "");
-  }
-
-  function haveditFallbackPath(step, viewKey) {
-    const padded = String(step).padStart(4, "0");
-
-    const folderMap = {
-      x0: "frames/x0",
-      semantic_prior: "frames/semantic_prior",
-      attention: "frames/attention",
-      edit_mask: "frames/edit_mask",
-      preserve_weight: "frames/preserve_weight",
-      overlay_edit_mask: "frames/overlay_edit_mask",
-      overlay_preserve_weight: "frames/overlay_preserve_weight",
-      overlay_semantic_prior: "frames/overlay_semantic_prior"
-    };
-
-    const folder = folderMap[viewKey] || "frames/x0";
-    return `${haveditAssetBase}${folder}/step_${padded}.png`;
-  }
-
-  function updateHaveditDemo() {
-    const step = Number(haveditStepSlider.value);
-    const viewKey = haveditViewSelect.value;
-
-    haveditStepValue.textContent = step;
-    haveditStepLabel.textContent = step;
-    haveditViewCaption.textContent = haveditCaptions[viewKey] || "";
-
-    const frame = haveditFrames[step - 1];
-
-    if (frame && frame[viewKey]) {
-      haveditMainImage.src = haveditAssetUrl(frame[viewKey]);
-    } else {
-      haveditMainImage.src = haveditFallbackPath(step, viewKey);
-    }
-  }
-
-  function preloadHaveditFrames(viewKey) {
-    haveditFrames.forEach(function(frame, index) {
-      const step = index + 1;
-      const src = frame && frame[viewKey]
-        ? haveditAssetUrl(frame[viewKey])
-        : haveditFallbackPath(step, viewKey);
-
-      const img = new Image();
-      img.src = src;
-    });
-  }
-
-  fetch(haveditManifestPath)
-    .then(function(response) {
-      if (!response.ok) {
-        throw new Error("Cannot load manifest.json");
-      }
-      return response.json();
-    })
-    .then(function(manifest) {
-      haveditFrames = manifest.frames || [];
-
-      if (haveditFrames.length > 0) {
-        haveditStepSlider.min = 1;
-        haveditStepSlider.max = haveditFrames.length;
-        haveditStepSlider.value = 1;
-        haveditStepMax.textContent = haveditFrames.length;
-      }
-
-      updateHaveditDemo();
-      preloadHaveditFrames("x0");
-    })
-    .catch(function(error) {
-      console.warn("HAVEdit manifest loading failed. Falling back to hard-coded frame paths.", error);
-
-      haveditFrames = new Array(28).fill(null);
-      haveditStepSlider.min = 1;
-      haveditStepSlider.max = 28;
-      haveditStepSlider.value = 1;
-      haveditStepMax.textContent = 28;
-
-      updateHaveditDemo();
-    });
-
-  haveditStepSlider.addEventListener("input", updateHaveditDemo);
-
-  haveditViewSelect.addEventListener("change", function() {
-    updateHaveditDemo();
-    preloadHaveditFrames(haveditViewSelect.value);
-  });
-</script>
-
-<script>
-  const haveditSlider = document.getElementById("havedit-slider");
-  const haveditSliderImage = document.getElementById("havedit-slider-image");
-  const haveditSliderValue = document.getElementById("havedit-slider-value");
-
-  const haveditImages = {
-    1: "static/images/carousel1.jpg",
-    2: "static/images/carousel2.jpg",
-    3: "static/images/carousel3.jpg",
-    4: "static/images/carousel4.jpg"
-  };
-
-  haveditSlider.addEventListener("input", function () {
-    const t = this.value;
-    haveditSliderValue.textContent = t;
-    haveditSliderImage.src = haveditImages[t];
-  });
-
-  // Preload images for smoother slider interaction.
-  Object.values(haveditImages).forEach(function (src) {
-    const img = new Image();
-    img.src = src;
-  });
-</script>
 
 
 
