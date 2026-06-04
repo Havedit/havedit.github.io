@@ -279,7 +279,7 @@
         <div class="content has-text-justified">
           <!-- TODO: Replace with your paper abstract -->
           <p>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin ullamcorper tellus sed ante aliquam tempus. Etiam porttitor urna feugiat nibh elementum, et tempor dolor mattis. Donec accumsan enim augue, a vulputate nisi sodales sit amet. Proin bibendum ex eget mauris cursus euismod nec et nibh. Maecenas ac gravida ante, nec cursus dui. Vivamus purus nibh, placerat ac purus eget, sagittis vestibulum metus. Sed vestibulum bibendum lectus gravida commodo. Pellentesque auctor leo vitae sagittis suscipit.
+            Training-free image editing aims to modify images according to textual instructions without updating model parameters. Despite the strong generative priors offered by recent rectified-flow foundation models, preserving instruction-irrelevant content remains challenging when performing local edits. Existing methods often impose preservation constraints through global trajectories, spatial regions, or token partitions. Such coarse control can lead to an unfavorable trade-off in local editing: weak constraints may cause over-editing and source drift, whereas overly strong constraints may suppress desired semantic changes, especially when edit-relevant semantics and stable source semantics are entangled within the same object or internal representation. In this work, we propose HAVEdit, a training-free image editing framework based on head-wise adaptive value modulation. HAVEdit estimates continuous preservation weights for each attention head and image token by combining instruction-related semantic priors with local-neighborhood-aware value deviations between the editable branch and the source reference branch. To further stabilize ambiguous responses, we design an uncertainty-aware source stabilization mechanism that softly anchors uncertain value features toward the reference branch without over-constraining edit-relevant regions. Extensive experiments on public image editing benchmarks demonstrate that HAVEdit substantially improves structure fidelity and background preservation across rectified-flow backbones.
           </p>
         </div>
       </div>
@@ -296,7 +296,7 @@
 
     <p class="has-text-centered" style="margin-bottom: 1.5rem;">
       Use the sliders to explore the parameter sweep. The middle panel shows
-      the <b>Semantic Prior Current</b> overlay at denoising step <b>t</b>.
+      the <b>Semantic Prior Current</b> overlay at flow-matching step <b>t</b>.
       All images are pre-computed and loaded statically.
     </p>
 
@@ -305,7 +305,7 @@
         <h3 class="title is-5">Original</h3>
         <img
           id="havedit-original-image"
-          src="static/images/havedit/demo_light/original.webp"
+          src="static/images/havedit/demo_light_v2/original.webp"
           alt="Original image"
           style="width: 100%; border-radius: 12px;"
         >
@@ -337,7 +337,7 @@
     <div class="box" style="margin-top: 1.5rem;">
       <div class="field">
         <label class="label">
-          threshold =
+          &tau; =
           <span id="havedit-threshold-label">0.90</span>
         </label>
         <input
@@ -354,7 +354,7 @@
       <div class="field">
         <label class="label">
           &tau;<sub>low</sub> =
-          <span id="havedit-tau-label">0.80</span>
+          <span id="havedit-tau-label">0.60</span>
         </label>
         <input
           id="havedit-tau-slider"
@@ -362,7 +362,7 @@
           type="range"
           min="0"
           max="6"
-          value="4"
+          value="0"
           step="1"
         >
       </div>
@@ -398,8 +398,6 @@
           step="1"
         >
       </div>
-
-      <p id="havedit-path-debug" class="has-text-centered" style="margin-top: 1rem; font-size: 0.9rem; color: #666;"></p>
     </div>
   </div>
 </section>
@@ -407,7 +405,8 @@
 
 <script>
   (function () {
-    const ASSET_BASE = "static/images/havedit/demo_light/";
+    const ASSET_BASE = "static/images/havedit/demo_light_v2/";
+    const SWEEP_MANIFEST_URL = ASSET_BASE + "sweep_manifest.json";
 
     const thresholds = [
       { label: "0.80", key: "0p8" },
@@ -421,7 +420,7 @@
       { label: "0.96", key: "0p96" }
     ];
 
-    const tauLows = [
+    const tauLowAll = [
       { label: "0.60", key: "0p6" },
       { label: "0.65", key: "0p65" },
       { label: "0.70", key: "0p7" },
@@ -458,12 +457,95 @@
 
     const mainImage = document.getElementById("havedit-main-image");
     const resultImage = document.getElementById("havedit-result-image");
-    const pathDebug = document.getElementById("havedit-path-debug");
+
+    let validTauLowByThreshold = {};
+    let currentTauLowLabel = "0.60";
+
+    function valueToKey(value) {
+      const num = Number(value);
+
+      if (Math.abs(num) < 1e-9) {
+        return "0";
+      }
+
+      return num
+        .toFixed(2)
+        .replace(/0+$/, "")
+        .replace(/\.$/, "")
+        .replace(".", "p");
+    }
+
+    function findTauItemByLabel(label) {
+      return tauLowAll.find(function (item) {
+        return item.label === label;
+      });
+    }
+
+    function getValidTauLowItems(thresholdLabel) {
+      const thresholdNumber = Number(thresholdLabel);
+
+      const possibleKeys = [
+        thresholdLabel,
+        String(thresholdNumber),
+        thresholdNumber.toFixed(2)
+      ];
+
+      let manifestValues = null;
+
+      for (const key of possibleKeys) {
+        if (validTauLowByThreshold && validTauLowByThreshold[key]) {
+          manifestValues = validTauLowByThreshold[key];
+          break;
+        }
+      }
+
+      if (manifestValues) {
+        return manifestValues
+          .map(function (value) {
+            const label = Number(value).toFixed(2);
+            return findTauItemByLabel(label) || {
+              label: label,
+              key: valueToKey(label)
+            };
+          })
+          .filter(Boolean);
+      }
+
+      return tauLowAll.filter(function (item) {
+        return Number(item.label) < thresholdNumber;
+      });
+    }
+
+    function updateTauLowSliderRange() {
+      const threshold = thresholds[Number(thresholdSlider.value)];
+      const validTauItems = getValidTauLowItems(threshold.label);
+
+      let newIndex = validTauItems.findIndex(function (item) {
+        return item.label === currentTauLowLabel;
+      });
+
+      if (newIndex < 0) {
+        newIndex = 0;
+      }
+
+      tauSlider.min = 0;
+      tauSlider.max = Math.max(validTauItems.length - 1, 0);
+      tauSlider.value = newIndex;
+      tauSlider.dataset.validTauItems = JSON.stringify(validTauItems);
+
+      currentTauLowLabel = validTauItems[newIndex].label;
+    }
+
+    function getCurrentTauLow() {
+      const validTauItems = JSON.parse(tauSlider.dataset.validTauItems || "[]");
+
+      return validTauItems[Number(tauSlider.value)] || tauLowAll[0];
+    }
 
     function getCurrentParams() {
       return {
         threshold: thresholds[Number(thresholdSlider.value)],
-        tauLow: tauLows[Number(tauSlider.value)],
+        tauLow: getCurrentTauLow(),
         lambdaMax: lambdaMaxes[Number(lambdaSlider.value)]
       };
     }
@@ -513,17 +595,6 @@
       stepValue.textContent = step;
     }
 
-    function updateImages() {
-      const step = Number(stepSlider.value);
-
-      mainImage.src = getOverlayUrl(step);
-      resultImage.src = getResultUrl();
-
-
-
-      preloadNearbyFrames(step);
-    }
-
     function preloadImage(src) {
       const img = new Image();
       img.src = src;
@@ -538,25 +609,53 @@
       preloadImage(getResultUrl());
     }
 
+    function updateImages() {
+      const step = Number(stepSlider.value);
+
+      mainImage.src = getOverlayUrl(step);
+      resultImage.src = getResultUrl();
+
+      preloadNearbyFrames(step);
+    }
+
     function updateDemo() {
       updateLabels();
       updateImages();
     }
 
-    [
-      thresholdSlider,
-      tauSlider,
-      lambdaSlider,
-      stepSlider
-    ].forEach(function (control) {
-      control.addEventListener("input", updateDemo);
-      control.addEventListener("change", updateDemo);
+    thresholdSlider.addEventListener("input", function () {
+      updateTauLowSliderRange();
+      updateDemo();
     });
 
-    updateDemo();
+    tauSlider.addEventListener("input", function () {
+      currentTauLowLabel = getCurrentTauLow().label;
+      updateDemo();
+    });
+
+    lambdaSlider.addEventListener("input", updateDemo);
+    stepSlider.addEventListener("input", updateDemo);
+
+    fetch(SWEEP_MANIFEST_URL)
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("Cannot load sweep_manifest.json");
+        }
+
+        return response.json();
+      })
+      .then(function (manifest) {
+        validTauLowByThreshold = manifest.valid_tau_low_by_threshold || {};
+        updateTauLowSliderRange();
+        updateDemo();
+      })
+      .catch(function (error) {
+        console.warn("Failed to load sweep_manifest.json. Falling back to tau_low < tau rule.", error);
+        updateTauLowSliderRange();
+        updateDemo();
+      });
   })();
 </script>
-
 
 
     
